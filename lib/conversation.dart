@@ -1,37 +1,29 @@
 import 'package:avatar_glow/avatar_glow.dart';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:http/http.dart' as http;
+import 'package:ips_app/loginInfo.dart' as login;
+import 'dart:convert';
 
-class Conversation extends StatelessWidget {
-  const Conversation({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Voice',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.purple,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
-      home: const SpeechScreen(),
-    );
+class Conversation extends StatefulWidget {
+  Conversation({super.key}) {
+    tts.setLanguage('kor');
+    tts.setSpeechRate(0.5);
   }
-}
-
-class SpeechScreen extends StatefulWidget {
-  const SpeechScreen({super.key});
+  final FlutterTts tts = FlutterTts();
 
   @override
-  _SpeechScreenState createState() => _SpeechScreenState();
+  ConversationUI createState() => ConversationUI();
 }
 
-class _SpeechScreenState extends State<SpeechScreen> {
+class ConversationUI extends State<Conversation> {
   late stt.SpeechToText _speech;
   bool _isListening = false;
-  String _text = 'Press the button and start speaking';
-  double _confidence = 1.0;
+  String _text = '버튼을 눌러 희망이와의 대화를 시작해보세요!';
+  final TextEditingController controller = TextEditingController();
 
+  String? tokenValue = login.realtoken;
   @override
   void initState() {
     super.initState();
@@ -42,7 +34,7 @@ class _SpeechScreenState extends State<SpeechScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Confidence: ${(_confidence * 100.0).toStringAsFixed(1)}%'),
+        title: const Text('희망이와의 대화'),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: AvatarGlow(
@@ -53,7 +45,7 @@ class _SpeechScreenState extends State<SpeechScreen> {
         repeatPauseDuration: const Duration(milliseconds: 100),
         repeat: true,
         child: FloatingActionButton(
-          onPressed: _listen,
+          onPressed: speech_text,
           child: Icon(_isListening ? Icons.mic : Icons.mic_none),
         ),
       ),
@@ -73,7 +65,22 @@ class _SpeechScreenState extends State<SpeechScreen> {
     );
   }
 
-  void _listen() async {
+  Future<void> speech_text() async {
+    await _listen().then((value) async {
+      if (value != null) {
+        String? response = await chatInfo(value);
+        if (response != null) {
+          setState(() {
+            _text = response;
+          });
+          controller.text = _text;
+          widget.tts.speak(controller.text);
+        }
+      }
+    });
+  }
+
+  Future<String?> _listen() async {
     if (!_isListening) {
       bool available = await _speech.initialize(
         onStatus: (val) => debugPrint('onStatus: $val'),
@@ -82,66 +89,43 @@ class _SpeechScreenState extends State<SpeechScreen> {
       if (available) {
         setState(() => _isListening = true);
         _speech.listen(
-          onResult: (val) => setState(() {
-            _text = val.recognizedWords;
-            if (val.hasConfidenceRating && val.confidence > 0) {
-              _confidence = val.confidence;
-            }
-          }),
+          onResult: (val) {
+            setState(() {
+              _text = val.recognizedWords;
+            });
+          },
         );
       }
     } else {
       setState(() => _isListening = false);
       _speech.stop();
+      widget.tts.stop();
+      return _text;
+    }
+    return null;
+  }
+
+  Future<String?> chatInfo(String chat) async {
+    final url = Uri.parse('http://54.178.216.208:8080/chat');
+    debugPrint('처음 chatInfo : $chat');
+    final response = await http.post(
+      url,
+      body: {
+        'input': chat,
+      },
+      headers: {'Cookie': 'x_auth = $tokenValue'},
+    );
+
+    debugPrint('chatInfo : $chat');
+    if (response.statusCode == 200) {
+      debugPrint('인식 성공');
+      final responseData = jsonDecode(response.body);
+      final data = responseData['data'];
+      return data;
+    } else {
+      debugPrint('인식 실패');
+      debugPrint(response.body);
+      return null;
     }
   }
 }
-
-
-
-/*
-
-class Conversation extends StatelessWidget {
-  const Conversation({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      debugShowCheckedModeBanner: false,
-      home: ConversationUI(),
-    );
-  }
-}
-
-class ConversationUI extends StatelessWidget {
-  final FlutterTts tts = FlutterTts();
-  final TextEditingController controller = TextEditingController(text: '안녕하세요');
-
-  ConversationUI({super.key}) {
-    tts.setLanguage('kor');
-    tts.setSpeechRate(0.4);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          TextField(
-            controller: controller,
-          ),
-          ElevatedButton(
-              onPressed: () {
-                tts.speak(controller.text);
-              },
-              child: const Text('Speak'))
-        ],
-      ),
-    );
-  }
-}*/
